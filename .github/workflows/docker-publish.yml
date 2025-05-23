@@ -3,13 +3,6 @@ name: Build and Publish Multi-Service Docker Images
 on:
   release:
     types: [published]
-  push:
-    branches:
-      - main
-      - develop
-  pull_request:
-    branches:
-      - main
 
 env:
   REGISTRY: ghcr.io
@@ -21,7 +14,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write
+      id-token: write # Maintained from original, useful for potential future OIDC integrations
 
     strategy:
       fail-fast: false
@@ -36,8 +29,8 @@ jobs:
           - name: database
             context: apps/database
             dockerfile: apps/database/Dockerfile
-          - name: func
-            context: apps/function
+          - name: func # Changed from 'function' in original matrix to 'func' to match image name in summary
+            context: apps/function # Assuming context is apps/function
             dockerfile: apps/function/Dockerfile
 
     steps:
@@ -61,7 +54,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.PACKAGES_TOKEN }}
+          password: ${{ secrets.PACKAGES_TOKEN }} # Using PACKAGES_TOKEN as specified
 
       - name: Extract metadata for ${{ matrix.service.name }}
         id: meta
@@ -69,20 +62,22 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.BASE_IMAGE_NAME }}-${{ matrix.service.name }}
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
+            # Uses the Git tag from the release (e.g., v1.5.7)
             type=ref,event=tag
+            # Generates SemVer tags from the Git tag (e.g., 1.5.7, 1.5, 1 from v1.5.7)
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=stable,enable=${{ github.event_name == 'release' }}
+            type=semver,pattern={{major}}
+            # Tags the release as 'latest' and 'stable'
+            type=raw,value=latest
+            type=raw,value=stable
 
       - name: Build and push ${{ matrix.service.name }} image
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.service.context }}
           file: ${{ matrix.service.dockerfile }}
-          push: true
+          push: true # Always push since this job only runs on release
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.service.name }}
@@ -92,16 +87,24 @@ jobs:
   summary:
     needs: build-and-publish
     runs-on: ubuntu-latest
-    if: always()
+    if: always() # Ensures summary runs even if a build fails
     permissions:
-      contents: read
+      contents: read # Minimum permissions needed for GITHUB_STEP_SUMMARY
     steps:
       - name: Build Summary
         run: |
-          echo "## 🐳 Docker Images Built" >> $GITHUB_STEP_SUMMARY
-          echo "| Service | Status | Image |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Core | ✅ | ghcr.io/orbical-dev/envybase-core |" >> $GITHUB_STEP_SUMMARY
-          echo "| Auth | ✅ | ghcr.io/orbical-dev/envybase-auth |" >> $GITHUB_STEP_SUMMARY
-          echo "| Database | ✅ | ghcr.io/orbical-dev/envybase-database |" >> $GITHUB_STEP_SUMMARY
-          echo "| Function | ✅ | ghcr.io/orbical-dev/envybase-func |" >> $GITHUB_STEP_SUMMARY
+          echo "## 🐳 Docker Images Built (Release: ${{ github.event.release.tag_name }})" >> $GITHUB_STEP_SUMMARY
+          echo "| Service  | Status | Image                                            |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|--------------------------------------------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Core     | ✅     | ${{ env.REGISTRY }}/${{ env.BASE_IMAGE_NAME }}-core     |" >> $GITHUB_STEP_SUMMARY
+          echo "| Auth     | ✅     | ${{ env.REGISTRY }}/${{ env.BASE_IMAGE_NAME }}-auth     |" >> $GITHUB_STEP_SUMMARY
+          echo "| Database | ✅     | ${{ env.REGISTRY }}/${{ env.BASE_IMAGE_NAME }}-database |" >> $GITHUB_STEP_SUMMARY
+          echo "| Function | ✅     | ${{ env.REGISTRY }}/${{ env.BASE_IMAGE_NAME }}-func     |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Tags created for each image (example for 'core', applies to all):" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ github.event.release.tag_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`$(echo ${{ github.event.release.tag_name }} | sed 's/^v//')\` (version)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`$(echo ${{ github.event.release.tag_name }} | sed 's/^v//' | cut -d. -f1,2)\` (major.minor)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`$(echo ${{ github.event.release.tag_name }} | sed 's/^v//' | cut -d. -f1)\` (major)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`stable\`" >> $GITHUB_STEP_SUMMARY
