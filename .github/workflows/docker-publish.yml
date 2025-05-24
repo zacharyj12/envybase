@@ -6,7 +6,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  BASE_IMAGE_NAME: orbical-dev/envybase
+  BASE_IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-publish:
